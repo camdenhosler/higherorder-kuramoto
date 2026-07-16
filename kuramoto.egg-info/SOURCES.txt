@@ -1,0 +1,10 @@
+pyproject.toml
+kuramoto.egg-info/PKG-INFO
+kuramoto.egg-info/SOURCES.txt
+kuramoto.egg-info/dependency_links.txt
+kuramoto.egg-info/top_level.txt
+src/__init__.py
+src/oscillators.py
+src/perturbations.py
+tests/test_osc.py
+tests/test_pert.py
