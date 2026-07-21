@@ -4,11 +4,11 @@
 import numpy as np
 import xgi
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, LogNorm
 from itertools import permutations
 from concurrent.futures import ProcessPoolExecutor
 
-from src.higher_oscillators import higher_find_fpas, build_sparse_A
+from src.higher_oscillators import find_fpas, build_sparse_A
 
 def adjacency_tensor(H, order):
     N = H.num_nodes
@@ -31,7 +31,7 @@ def run_trial(N,K,ps,seed):
     rng = np.random.default_rng(seed=seed)
     omega = rng.normal(loc=5.0, scale=1.0, size=N)
 
-    t_start, t_end = 0.0, 25.0
+    t_start, t_end = 0.0, 10.0
 
     theta_init = rng.uniform(low=0.0, high=2*np.pi, size=N)
 
@@ -42,7 +42,7 @@ def run_trial(N,K,ps,seed):
         'sparse_A': sparse_A
     }
 
-    theta, theta_deriv = higher_find_fpas(t_start=t_start,t_end=t_end,theta_init=theta_init,params=sim_params)
+    theta, theta_deriv, _, _= find_fpas(t_start=t_start,t_end=t_end,theta_init=theta_init,params=sim_params)
 
     phase_init = theta[0]
     delta_theta = np.abs(theta - phase_init)
@@ -122,52 +122,41 @@ def figure2(state_arr, k_arr):
     num_k_bins = 15
     num_val_bins = 15
 
-    counts, val_edges, k_edges = np.histogram2d(
+    val_binwidth = np.pi / num_val_bins
+
+    H, val_edges, k_edges = np.histogram2d(
         val_flat, k_flat,
         bins=[num_val_bins, num_k_bins],
-        range=[[0, np.pi],[k_arr.min(), k_arr.max()]]
+        range=[[0 - val_binwidth / 2, np.pi + val_binwidth / 2],[k_arr.min(), k_arr.max()]],
     )
 
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d', computed_zorder=True)
+    fig, ax = plt.subplots(figsize=(5,4), dpi=200)
 
     val_centers = (val_edges[:-1] + val_edges[1:]) / 2 
     k_centers = (k_edges[:-1] + k_edges[1:]) / 2  
 
-    x_pos, y_pos = np.meshgrid(val_centers, k_centers, indexing="ij")
-    x_pos = x_pos.ravel()
-    y_pos = y_pos.ravel()
-    z_pos = np.zeros_like(x_pos)
+    H_masked = H.copy()
+    H_masked[H_masked == 0] = np.nan
 
-    dx = np.full_like(x_pos, val_edges[1] - val_edges[0])
-    dy = np.full_like(y_pos, k_edges[1] - k_edges[0])
-    dz = counts.ravel()
+    colors = ['white', "#44bbe3"]
+    custom_cmap = LinearSegmentedColormap.from_list("white_to_blue", colors)
 
-    mask = dz > 0
-    x_pos = x_pos[mask]
-    y_pos = y_pos[mask]
-    z_pos = z_pos[mask]
-    dx = dx[mask]
-    dy = dy[mask]
-    dz = dz[mask]  
-
-    ax.bar3d(x_pos, y_pos, z_pos, dx, dy, dz, color="#44bbe3", edgecolor='black', linewidth=0.8, shade=False)
-
-    ax.view_init(elev=25, azim=-33)
-    ax.set_box_aspect([1, 1, 0.6])
-    fig.tight_layout()
-    ax.grid(True, alpha=0.3)
     ax.set_xticks([0, np.pi])
     ax.set_xticklabels([r"$0$", r"$\pi$"])
-    ax.set_xlabel("Phase Difference from Node 0")
-    ax.set_ylabel("Coupling Constant Epsilon")
-    ax.set_zlabel("Number of Nodes")
-    ax.set_title(f"Distribution of Relative Phase and Coupling Constant", y=0.97) 
+
+    plt.pcolormesh(val_centers, k_centers, H_masked.T, cmap='viridis', shading='auto', norm = LogNorm())
+
+    plt.colorbar(label='Counts per bin')
+    plt.xlabel('Phase Difference From Node 0')
+    plt.ylabel('Coupling Constant')
+    plt.xlim(0 - val_binwidth / 2, val_binwidth / 2 + np.pi)
+    plt.ylim(0, None)
+
     plt.show()
 
 def main():
     N = 50
-    K_max = 250
+    K_max = 1000
     num_trials = 100
     p_H = 0.03
     ps = [0.0,p_H]
@@ -176,11 +165,42 @@ def main():
     seed = master_rng.integers(0, 2**32 - 1, endpoint=True)
 
     H, delta_theta = run_trial(N=N,ps=ps,K=100,seed=seed)
-    figure1(H=H,delta_theta=delta_theta,N=N,ps=ps,K=100)
-
     state_arr, k_arr = run_K_trials(N=N,K_max=K_max,num_trials=num_trials,ps=ps,seed=seed)
+
+    figure1(H=H,delta_theta=delta_theta,N=N,ps=ps,K=100)
     figure2(state_arr=state_arr,k_arr=k_arr)
 
 if __name__ == "__main__":
     main()
 
+
+
+    # x_pos, y_pos = np.meshgrid(val_centers, k_centers, indexing="ij")
+    # x_pos = x_pos.ravel()
+    # y_pos = y_pos.ravel()
+    # z_pos = np.zeros_like(x_pos)
+
+    # dx = np.full_like(x_pos, val_edges[1] - val_edges[0])
+    # dy = np.full_like(y_pos, k_edges[1] - k_edges[0])
+    # dz = counts.ravel()
+
+    # mask = dz > 0
+    # x_pos = x_pos[mask]
+    # y_pos = y_pos[mask]
+    # z_pos = z_pos[mask]
+    # dx = dx[mask]
+    # dy = dy[mask]
+    # dz = dz[mask]  
+
+    # ax.bar3d(x_pos, y_pos, z_pos, dx, dy, dz, color="#44bbe3", edgecolor='black', linewidth=0.8, shade=False)
+
+    # ax.view_init(elev=25, azim=-33)
+    # ax.set_box_aspect([1, 1, 0.6])
+    # fig.tight_layout()
+    # ax.grid(True, alpha=0.3)
+    # ax.set_xticks([0, np.pi])
+    # ax.set_xticklabels([r"$0$", r"$\pi$"])
+    # ax.set_xlabel("Phase Difference from Node 0")
+    # ax.set_ylabel("Coupling Constant Epsilon")
+    # ax.set_zlabel("Number of Nodes")
+    # ax.set_title(f"Distribution of Relative Phase and Coupling Constant", y=0.97) 
