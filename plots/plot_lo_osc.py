@@ -2,38 +2,26 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-import xgi
+import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, LogNorm
-from itertools import permutations
 from concurrent.futures import ProcessPoolExecutor
 
-from src.higher_oscillators import find_fpas, build_sparse_A
+from src.lower_oscillators import find_fpas, build_sparse_A
 
-def adjacency_tensor(H, order):
-    N = H.num_nodes
-    shape = tuple([N] * (order + 1))
-    tensor = np.zeros(shape)
+def run_trial(N,K,p_L,seed):
 
-    edges = H.edges.filterby("order", order)
-    for _, members in edges.members(dtype=dict).items():
-        for idcs in permutations(members):
-            tensor[idcs] = 1
-
-    return tensor
-
-def run_trial(N,K,ps,seed):
-
-    H = xgi.fast_random_hypergraph(N, ps, seed=int(seed))
-    A = adjacency_tensor(H,2)
+    G = nx.erdos_renyi_graph(n=N, p=p_L,seed=int(seed))
+    A = nx.to_numpy_array(G)
     sparse_A = build_sparse_A(A)
-   
-    rng = np.random.default_rng(seed=seed)
-    omega = rng.normal(loc=5.0, scale=1.0, size=N)
 
-    t_start, t_end = 0.0, 10.0
+    rng = np.random.default_rng(seed=seed)
+    omega = np.zeros(N)
+
+    t_start, t_end = 0.0, 30.0
 
     theta_init = rng.uniform(low=0.0, high=2*np.pi, size=N)
+    nx.set_node_attributes(G, dict(zip(G.nodes(), theta_init)), name="angle")
 
     sim_params = {
         'omega': omega,
@@ -42,20 +30,21 @@ def run_trial(N,K,ps,seed):
         'sparse_A': sparse_A
     }
 
-    theta, theta_deriv, _, _= find_fpas(t_start=t_start,t_end=t_end,theta_init=theta_init,params=sim_params)
+    theta, theta_deriv, _, _, _ = find_fpas(t_start=t_start,t_end=t_end,theta_init=theta_init,params=sim_params)
+
 
     phase_init = theta[0]
     delta_theta = np.abs(theta - phase_init)
 
-    return H, delta_theta
-
-def run_K_trials(N,K_max,num_trials, ps, seed):
+    return G, delta_theta
+    
+def run_K_trials(N,K_max,num_trials, p_L, seed):
 
     k = np.linspace(0.0, K_max, num_trials)
    
     with ProcessPoolExecutor() as executor:
         futures = [
-            executor.submit(run_trial, N, k_i, ps, seed)
+            executor.submit(run_trial, N, k_i, p_L, seed)
             for k_i in k
         ]
 
@@ -69,25 +58,28 @@ def run_K_trials(N,K_max,num_trials, ps, seed):
         
         return state_arr, k
 
-def figure1(H,delta_theta,N,ps,K): 
+def figure1(G, delta_theta, N, p_L, K):
+    pos = nx.spring_layout(G, seed=42)
 
     _, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
-    pos = xgi.barycenter_spring_layout(H)
+    nx.draw_networkx_edges(G, pos, edge_color="slategrey", alpha=0.2,ax=ax1)
 
     colors = ['white', "#44bbe3"]
     custom_cmap = LinearSegmentedColormap.from_list("white_to_blue", colors)
-
-    _, node_col = xgi.draw_nodes(H,
-             node_fc=delta_theta,
-             node_fc_cmap=custom_cmap,
-             vmin = 0,
-             vmax = np.pi,
-             ax=ax1,
-             pos=pos,
-             )
-    print(xgi.is_connected(H))
-
-    ax1.set_title(f"2nd Order Erdős–Rényi Network (N = {N}, p = {ps[1]}, K = {K})")
+    node_col = nx.draw_networkx_nodes(
+    G, 
+    pos,
+    node_color=delta_theta, 
+    cmap=custom_cmap, 
+    vmin = 0,
+    vmax = np.pi,
+    node_size=50,
+    edgecolors="black",
+    linewidths=1,
+    ax=ax1,
+    )
+    ax1.set_title(f"Erdős–Rényi Network (N = {N}, p = {p_L}, K = {K})")
+    ax1.axis('off')
 
     cbar = plt.colorbar(node_col, label="Phase Difference from Node 0", location = "bottom")
     cbar.set_ticks([0, np.pi])
@@ -127,7 +119,7 @@ def figure2(state_arr, k_arr):
     H, val_edges, k_edges = np.histogram2d(
         val_flat, k_flat,
         bins=[num_val_bins, num_k_bins],
-        range=[[0 - val_binwidth / 2, np.pi + val_binwidth / 2],[k_arr.min(), k_arr.max()]],
+        range=[[0 - val_binwidth / 2, np.pi + val_binwidth / 2],[k_arr.min(), k_arr.max()]]
     )
 
     fig, ax = plt.subplots(figsize=(5,4), dpi=200)
@@ -137,9 +129,6 @@ def figure2(state_arr, k_arr):
 
     H_masked = H.copy()
     H_masked[H_masked == 0] = np.nan
-
-    colors = ['white', "#44bbe3"]
-    custom_cmap = LinearSegmentedColormap.from_list("white_to_blue", colors)
 
     ax.set_xticks([0, np.pi])
     ax.set_xticklabels([r"$0$", r"$\pi$"])
@@ -151,28 +140,27 @@ def figure2(state_arr, k_arr):
     plt.ylabel('Coupling Constant')
     plt.xlim(0 - val_binwidth / 2, val_binwidth / 2 + np.pi)
     plt.ylim(0, None)
+    plt.title("Final state after 10,000 time steps")
 
     plt.show()
 
 def main():
     N = 50
-    K_max = 1000
+    K_max = 250
     num_trials = 100
-    p_H = 0.03
-    ps = [0.0,p_H]
+    p_L = 0.2
 
     master_rng = np.random.default_rng()
     seed = master_rng.integers(0, 2**32 - 1, endpoint=True)
 
-    H, delta_theta = run_trial(N=N,ps=ps,K=100,seed=seed)
-    state_arr, k_arr = run_K_trials(N=N,K_max=K_max,num_trials=num_trials,ps=ps,seed=seed)
+    G, fig1_dt = run_trial(N=N,K=100,p_L=p_L,seed=seed)
+    figure1(G=G,delta_theta=fig1_dt,N=N,p_L=p_L,K=100)
 
-    figure1(H=H,delta_theta=delta_theta,N=N,ps=ps,K=100)
+    state_arr, k_arr = run_K_trials(N=N,K_max=K_max,num_trials=num_trials,p_L=p_L,seed=seed)
     figure2(state_arr=state_arr,k_arr=k_arr)
 
 if __name__ == "__main__":
     main()
-
 
 
     # x_pos, y_pos = np.meshgrid(val_centers, k_centers, indexing="ij")

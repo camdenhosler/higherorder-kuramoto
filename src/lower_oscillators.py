@@ -16,14 +16,20 @@ def build_sparse_A(A):
 @nb.njit(fastmath=True, cache=True)
 def kuramoto_func(_: float, theta: np.ndarray, omega: np.ndarray, K: float, 
                          N: int, idx_i: np.ndarray, idx_j: np.ndarray, vals: np.ndarray) -> np.ndarray:
-    theta_deriv = np.zeros(N)
+    theta_deriv = omega.copy()
     n_edges = len(vals)
     for e in range(n_edges):
         i = idx_i[e]
         j = idx_j[e]
 
         theta_deriv[i] += vals[e] * np.sin(theta[j] - theta[i]) + vals[e] * ( K / N ) * np.sin(2 * (theta[j] - theta[i]))
+        #theta_deriv[i] += ( K / N ) * vals[e] * np.sin(theta[j] - theta[i])
     return theta_deriv
+
+def zero_deriv(_: float, theta: np.ndarray, omega: np.ndarray, K: float, N: int, idx_i: np.ndarray, idx_j: np.ndarray, vals: np.ndarray):
+    theta_deriv = kuramoto_func(_, theta, omega, K, N, idx_i, idx_j, vals)
+    inf_norm = np.max(np.abs(theta_deriv))
+    return inf_norm - 0.001
 
 @nb.njit(fastmath=True, cache=True)
 def jacobian(theta: np.ndarray, K: float, N: int, idx_i: np.ndarray, 
@@ -52,13 +58,15 @@ def jacobian(theta: np.ndarray, K: float, N: int, idx_i: np.ndarray,
     return J
 
 def find_fpas(t_start: float,t_end: float, theta_init: np.ndarray, 
-              params: Dict[str, Any], func=kuramoto_func) -> Tuple[np.ndarray, np.ndarray, np.ndarray, bool]:
+              params: Dict[str, Any], func=kuramoto_func) -> Tuple[np.ndarray, np.ndarray, np.ndarray, bool, bool]:
     """
     Integrates the system to find approximate root which is refined by scipy
     root and then checks for stability through the eigenvalues of jacobian.
     Note that the jacobian is calculated only for the regularized kuramoto
     no other dynamics.
     """
+    zero_deriv.terminal = True    
+    zero_deriv.direction = 0
     idx_i, idx_j, vals = params['sparse_A']
 
     solution = solve_ivp(
@@ -70,10 +78,10 @@ def find_fpas(t_start: float,t_end: float, theta_init: np.ndarray,
         method='LSODA',
         rtol=1e-5,
         atol=1e-7,
+        events=zero_deriv,
     )
 
-    print(f"Int finished at {solution.t[-1]}")
-
+    event_failed = len(solution.t_events[0]) == 0
     candidate_phases = solution.y[:, -1]
 
     def root_target(theta):
@@ -82,10 +90,10 @@ def find_fpas(t_start: float,t_end: float, theta_init: np.ndarray,
 
     res = root(root_target, candidate_phases, method='hybr')
 
-    if not res.success:
+    if not res.success or event_failed:
         print("NOT FIXED")
         candidate_derivs = root_target(candidate_phases)
-        return candidate_phases % (2 * np.pi), candidate_derivs, candidate_phases, False
+        return candidate_phases % (2 * np.pi), candidate_derivs, candidate_phases, False, False
 
     fixed_point = res.x
     fixed_derivs = root_target(fixed_point)
@@ -101,11 +109,11 @@ def find_fpas(t_start: float,t_end: float, theta_init: np.ndarray,
 
     if max_eigval > stability_threshold:
         print("UNSTABLE")
-        return fixed_point % (2 * np.pi), fixed_derivs, fixed_point, False
+        return fixed_point % (2 * np.pi), fixed_derivs, fixed_point, True, False
 
     final_phases = fixed_point
     final_phases_mod = final_phases % (2 * np.pi)
     final_derivs = fixed_derivs
 
-    return final_phases_mod, final_derivs, final_phases, True
+    return final_phases_mod, final_derivs, final_phases, True, True
 

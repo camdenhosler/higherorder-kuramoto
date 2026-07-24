@@ -9,7 +9,7 @@ from itertools import permutations
 from concurrent.futures import ProcessPoolExecutor
 
 from src.higher_oscillators import build_sparse_A
-from src.perturbations import perturbation, higher_perturbation, projection_distance
+from src.perturbations import perturbation, projection_distance
 
 def adjacency_tensor(H, order):
     N = H.num_nodes
@@ -59,7 +59,7 @@ def HO_run_trial(seed,N,K,t_start,t_end,ps):
     }
 
     node1, node2 = rng.choice(N, size=2, replace=False)
-    fsfpa, ssfpa, dfpa = higher_perturbation(node1=node1,node2=node2,t_start=t_start,t_end=t_end,theta_init=theta_init,params=sim_params)
+    fsfpa, ssfpa, dfpa = perturbation(node1=node1,node2=node2,t_start=t_start,t_end=t_end,theta_init=theta_init,params=sim_params)
 
     return projection_distance(fsfpa,ssfpa,dfpa), seed
 

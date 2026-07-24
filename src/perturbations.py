@@ -7,7 +7,7 @@ def perturbation(node1: int, node2: int, perturb_strength: float, t_start: float
 
     cut_find_fpas = partial(func,t_start=t_start,t_end=t_end,params=params)
 
-    m_ifpa, _, ifpa, stab1 = cut_find_fpas(theta_init=theta_init)
+    _, _, ifpa, fixed1, stab1 = cut_find_fpas(theta_init=theta_init)
 
     fs_perturb = ifpa.copy()
     ss_perturb = ifpa.copy()
@@ -18,9 +18,12 @@ def perturbation(node1: int, node2: int, perturb_strength: float, t_start: float
     d_perturb = fs_perturb.copy()
     d_perturb[node2] = fs_perturb[node2] + perturb_strength
 
-    m_fsfpa, _, fsfpa, stab2 = cut_find_fpas(theta_init=fs_perturb)
-    m_ssfpa, _, ssfpa, stab3 = cut_find_fpas(theta_init=ss_perturb)
-    m_dfpa, _, dfpa, stab4 = cut_find_fpas(theta_init=d_perturb)
+    _, _, fsfpa, fixed2, stab2 = cut_find_fpas(theta_init=fs_perturb)
+    _, _, ssfpa, fixed3, stab3 = cut_find_fpas(theta_init=ss_perturb)
+    _, _, dfpa, fixed4, stab4 = cut_find_fpas(theta_init=d_perturb)
+
+    def angular_diff(theta1, theta2):
+        return (theta1 - theta2 + np.pi) % (2 * np.pi) - np.pi
 
     dists = {
         'fs': fsfpa - ifpa,
@@ -28,15 +31,18 @@ def perturbation(node1: int, node2: int, perturb_strength: float, t_start: float
         'd': dfpa - ifpa,
     }
 
-    mod_dists = {
-        'fs': m_fsfpa - m_ifpa,
-        'ss': m_ssfpa - m_ifpa,
-        'd': m_dfpa - m_ifpa,
+    diff_dists = {
+        'fs': angular_diff(dists['fs'], dists['fs'][0]),
+        'ss': angular_diff(dists['ss'], dists['ss'][0]),
+        'd': angular_diff(dists['d'], dists['d'][0]),
     }
 
-    total_stability = stab1 | stab2 | stab3 | stab4
+    total_fixed = fixed1 & fixed2 & fixed3 & fixed4
+    total_stability = stab1 & stab2 & stab3 & stab4
 
-    return dists, mod_dists, total_stability
+    total_fs = total_fixed & total_stability
+
+    return dists, diff_dists, total_fs
 
 def projection_distance(fpa1: np.ndarray, fpa2: np.ndarray, target_fpa: np.ndarray):
     A = np.column_stack((fpa1,fpa2))
@@ -44,5 +50,14 @@ def projection_distance(fpa1: np.ndarray, fpa2: np.ndarray, target_fpa: np.ndarr
     A_pinv = np.linalg.pinv(A)
     Proj_target = A @ A_pinv @ target_fpa
 
-    Proj_distance = np.linalg.norm(target_fpa - Proj_target)
-    return Proj_distance
+    orth_distance = np.linalg.norm(target_fpa - Proj_target)
+    span_distance = np.linalg.norm((fpa1 + fpa2) - Proj_target)
+
+    rank = np.linalg.matrix_rank(np.column_stack((fpa1, fpa2)))
+
+    if rank < 2:
+        degenerate = True
+    else:
+        degenerate = False
+
+    return orth_distance, span_distance, degenerate
