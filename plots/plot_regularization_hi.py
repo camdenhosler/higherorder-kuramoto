@@ -1,62 +1,59 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
+from pathlib import Path
 
 import numpy as np
 import xgi
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, LogNorm
-from itertools import permutations
 from concurrent.futures import ProcessPoolExecutor
 
-from src.higher_oscillators import find_fpas, build_sparse_A
+from collections import namedtuple
+from juliacall import Main as jl
 
-def adjacency_tensor(H, order):
-    N = H.num_nodes
-    shape = tuple([N] * (order + 1))
-    tensor = np.zeros(shape)
+from src.sparsify import sparse_adjacency_tensor
 
-    edges = H.edges.filterby("order", order)
-    for _, members in edges.members(dtype=dict).items():
-        for idcs in permutations(members):
-            tensor[idcs] = 1
+def init_julia(parent_directory, julia_file_path):
+    from juliacall import Main as jl
+    jl.seval(f'import Pkg; Pkg.activate(raw"{parent_directory}")')
+    jl.include(str(julia_file_path))
 
-    return tensor
-
-def run_trial(N,K,ps,seed):
-
-    H = xgi.fast_random_hypergraph(N, ps, seed=int(seed))
-    A = adjacency_tensor(H,2)
-    sparse_A = build_sparse_A(A)
+def run_trial(seed, N, ps, K):
    
+    H = xgi.fast_random_hypergraph(int(N), ps, seed=int(seed))
+    idx_i, idx_j, idx_k, vals = sparse_adjacency_tensor(H, 2)
+
     rng = np.random.default_rng(seed=seed)
-    omega = np.zeros(N)
-
-    t_start, t_end = 0.0, 10.0
-
     theta_init = rng.uniform(low=0.0, high=2*np.pi, size=N)
 
-    sim_params = {
-        'omega': omega,
-        'K': K,
-        'N': N,
-        'sparse_A': sparse_A
-    }
+    DynParamsH = namedtuple('ModelParamsH', ['omega', 'K', 'N', 'idx_i', 'idx_j', 'idx_k', 'vals'])
+    H_params = DynParamsH(
+        omega=np.zeros(N),
+        K=K,
+        N=N,
+        idx_i=idx_i + 1,
+        idx_j=idx_j + 1,
+        idx_k=idx_k + 1,
+        vals=vals,
+    )
 
-    theta, theta_deriv, _, _, _= find_fpas(t_start=t_start,t_end=t_end,theta_init=theta_init,params=sim_params)
+    HigherEpisData = jl.evolve_to_fixed_point(theta_init, H_params)
+    theta = HigherEpisData.State
 
     phase_init = theta[0]
-    delta_theta = np.abs(theta - phase_init)
+    delta_theta = np.abs(np.array(theta) - phase_init)
 
     return H, delta_theta
 
-def run_K_trials(N,K_max,num_trials, ps, seed):
+def run_K_trials(num_trials, seeds, N, K_max, ps, parent_directory, julia_file_path):
 
     k = np.linspace(0.0, K_max, num_trials)
    
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(initializer=init_julia, initargs=(str(parent_directory), str(julia_file_path))) as executor:
         futures = [
-            executor.submit(run_trial, N, k_i, ps, seed)
-            for k_i in k
+            executor.submit(run_trial, seed=int(s), N=N, ps=ps, K=k_i)
+            for s, k_i in zip(seeds, k)
         ]
 
         results_list = []
@@ -152,9 +149,18 @@ def figure2(state_arr, k_arr):
     plt.ylim(0, None)
     plt.title("Final state after 10,000 time steps")
 
-    
-
 def main():
+    script_directory = os.path.dirname(os.path.abspath(__file__))
+    parent_directory = os.path.dirname(script_directory)
+
+    jl.seval(f'import Pkg; Pkg.activate(raw"{parent_directory}")')
+
+
+    script_dir = Path(__file__).parent
+    julia_file_path = script_dir.parent / "src" / "dynamics.jl"
+
+    jl.include(str(julia_file_path))
+
     N = 50
     K_max = 1000
     num_trials = 100
@@ -163,9 +169,17 @@ def main():
 
     master_rng = np.random.default_rng()
     seed = master_rng.integers(0, 2**32 - 1, endpoint=True)
+    seeds = master_rng.integers(0, 2**32 - 1, endpoint=True, size=num_trials)
 
     H, delta_theta = run_trial(N=N,ps=ps,K=100,seed=seed)
-    state_arr, k_arr = run_K_trials(N=N,K_max=K_max,num_trials=num_trials,ps=ps,seed=seed)
+    state_arr, k_arr = run_K_trials(
+        num_trials=num_trials,
+        seeds=seeds, 
+        N=N,
+        K_max=K_max,
+        ps=ps,
+        parent_directory=parent_directory,
+        julia_file_path=julia_file_path)
 
     figure1(H=H,delta_theta=delta_theta,N=N,ps=ps,K=100)
     figure2(state_arr=state_arr,k_arr=k_arr)
@@ -173,36 +187,5 @@ def main():
     plt.show()
 
 if __name__ == "__main__":
+
     main()
-
-
-
-    # x_pos, y_pos = np.meshgrid(val_centers, k_centers, indexing="ij")
-    # x_pos = x_pos.ravel()
-    # y_pos = y_pos.ravel()
-    # z_pos = np.zeros_like(x_pos)
-
-    # dx = np.full_like(x_pos, val_edges[1] - val_edges[0])
-    # dy = np.full_like(y_pos, k_edges[1] - k_edges[0])
-    # dz = counts.ravel()
-
-    # mask = dz > 0
-    # x_pos = x_pos[mask]
-    # y_pos = y_pos[mask]
-    # z_pos = z_pos[mask]
-    # dx = dx[mask]
-    # dy = dy[mask]
-    # dz = dz[mask]  
-
-    # ax.bar3d(x_pos, y_pos, z_pos, dx, dy, dz, color="#44bbe3", edgecolor='black', linewidth=0.8, shade=False)
-
-    # ax.view_init(elev=25, azim=-33)
-    # ax.set_box_aspect([1, 1, 0.6])
-    # fig.tight_layout()
-    # ax.grid(True, alpha=0.3)
-    # ax.set_xticks([0, np.pi])
-    # ax.set_xticklabels([r"$0$", r"$\pi$"])
-    # ax.set_xlabel("Phase Difference from Node 0")
-    # ax.set_ylabel("Coupling Constant Epsilon")
-    # ax.set_zlabel("Number of Nodes")
-    # ax.set_title(f"Distribution of Relative Phase and Coupling Constant", y=0.97) 

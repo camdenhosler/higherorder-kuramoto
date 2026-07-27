@@ -1,7 +1,7 @@
 using LinearAlgebra
+using Base.Threads
 
 include("dynamics.jl")
-include("utils.jl")
 
 @inline function circular_diff(theta1::AbstractVector, theta2::AbstractVector)
     return mod.(theta1 .- theta2 .+ pi, 2pi) .- pi
@@ -16,23 +16,28 @@ function orthogonal_proj_measures(vec1::AbstractVector, vec2::AbstractVector, ta
     norm1_sq = dot(vec1, vec1)
     norm2_sq = dot(vec2, vec2)
 
-    if norm1_sq < 1e-14 || norm2_sq < 1e-14
-        return (
-            OutOfSpanResidual = norm(target_vec), 
-            SpanResidual = 0.0, 
-            TotalDist = norm((vec1 .+ vec2) .- target_vec),
-            IsDependent = true)
-    end
+    v1_valid = norm1_sq >= 1e-14
+    v2_valid = norm2_sq >= 1e-14
 
-    cos_sq = (dot(vec1, vec2)^2) / (norm1_sq * norm2_sq)
-    is_dependent = (1.0 - cos_sq) < 1e-12
+    if !v1_valid && !v2_valid
+        proj_vec = zeros(Float64, length(target_vec))
+        is_dependent = true
+    elseif v1_valid && !v2_valid
+        proj_vec = vec1 * (dot(vec1, target_vec) / norm1_sq)
+        is_dependent = true
+    elseif !v1_valid && v2_valid
+        proj_vec = vec2 * (dot(vec2, target_vec) / norm2_sq)
+        is_dependent = true
+    else
+        cos_sq = (dot(vec1, vec2)^2) / (norm1_sq * norm2_sq)
+        is_dependent = (1.0 - cos_sq) < 1e-12
 
-    A = hcat(vec1, vec2)
-
-    if is_dependent
-        proj_vec = vec1 * (vec1 \ target_vec)
-    else 
-        proj_vec = A * (A \ target_vec)
+        if is_dependent
+            proj_vec = vec1 * (dot(vec1, target_vec) / norm1_sq)
+        else 
+            A = hcat(vec1, vec2)
+            proj_vec = A * (A \ target_vec)
+        end
     end
 
     eps1 = norm(target_vec - proj_vec)
@@ -48,11 +53,11 @@ function orthogonal_proj_measures(vec1::AbstractVector, vec2::AbstractVector, ta
 end
 
 
-function perturbation(node1::Int, node2::Int, theta_init::AbstractVector, params)
+function perturbation(node1::Int, node2::Int, theta_init::AbstractVector, params, ode_func!::Function)
     pert_str = params.pert_str
-    dynamic_params = Base.structdiff(params, (; pert_str=params.pert_str))
+    dynamic_params = NamedTuple{filter(!=(:pert_str), keys(params))}(params)
 
-    initialEvolve = evolve_to_fixed_point(theta_init, dynamic_params)
+    initialEvolve = evolve_to_fixed_point(theta_init, dynamic_params, ode_func!)
     initial_state = initialEvolve.State
 
     single1_init = copy(initial_state)
@@ -64,9 +69,9 @@ function perturbation(node1::Int, node2::Int, theta_init::AbstractVector, params
     double_init = copy(single1_init)
     double_init[node2] += pert_str
 
-    single1Evolve = evolve_to_fixed_point(single1_init, dynamic_params)
-    single2Evolve = evolve_to_fixed_point(single2_init, dynamic_params)
-    doubleEvolve = evolve_to_fixed_point(double_init, dynamic_params)
+    single1Evolve = evolve_to_fixed_point(single1_init, dynamic_params, ode_func!)
+    single2Evolve = evolve_to_fixed_point(single2_init, dynamic_params, ode_func!)
+    doubleEvolve = evolve_to_fixed_point(double_init, dynamic_params, ode_func!)
     single1_state = single1Evolve.State
     single2_state = single2Evolve.State
     double_state = doubleEvolve.State
@@ -95,7 +100,7 @@ function perturbation(node1::Int, node2::Int, theta_init::AbstractVector, params
 end
 
 
-function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch)
+function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch, ode_func!)
     N = Int(params_batch.N)
     n_trials = length(node1_batch)
     
@@ -111,7 +116,7 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch)
     rel_is_dependent = zeros(Float64, n_trials)
     valid_flags = zeros(Bool, n_trials)
 
-    for t in 1:n_trials
+    @threads for t in 1:n_trials
         #since Julia begins indexing at 1 and slices inclusively on both sides
         start_idx = Int(offsets[t]) + 1
         end_idx   = Int(offsets[t+1])
@@ -120,10 +125,10 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch)
             omega = params_batch.omega,
             K = Float64(params_batch.K),
             N = N,
-            idx_i = params_batch.idx_i[start_idx:end_idx],
-            idx_j = params_batch.idx_j[start_idx:end_idx],
-            idx_k = params_batch.idx_k[start_idx:end_idx],
-            vals  = params_batch.vals[start_idx:end_idx],
+            idx_i = @view(params_batch.idx_i[start_idx:end_idx]),
+            idx_j = @view(params_batch.idx_j[start_idx:end_idx]),
+            idx_k = @view(params_batch.idx_k[start_idx:end_idx]),
+            vals  = @view(params_batch.vals[start_idx:end_idx]),
             pert_str = Float64(params_batch.pert_str)
         )
 
@@ -131,7 +136,7 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch)
         n1 = Int(node1_batch[t])
         n2 = Int(node2_batch[t])
 
-        pertData = perturbation(n1, n2, theta_init_t, params_t)
+        pertData = perturbation(n1, n2, theta_init_t, params_t, ode_func!)
         (; StateVectors, RelativeStateVectors, AllAreFixed, AllAreStable) = pertData
 
         if !AllAreFixed || !AllAreStable

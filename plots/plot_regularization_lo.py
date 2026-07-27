@@ -9,6 +9,8 @@ from concurrent.futures import ProcessPoolExecutor
 
 from src.lower_oscillators import find_fpas, build_sparse_A
 
+
+
 def run_trial(N,K,p_L,seed):
 
     G = nx.erdos_renyi_graph(n=N, p=p_L,seed=int(seed))
