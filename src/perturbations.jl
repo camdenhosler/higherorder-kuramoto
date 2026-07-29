@@ -53,7 +53,7 @@ function orthogonal_proj_measures(vec1::AbstractVector, vec2::AbstractVector, ta
 end
 
 
-function perturbation(node1::Int, node2::Int, theta_init::AbstractVector, params, ode_func!::Function)
+function perturbation(node1::Int, node2::Int, theta_init::AbstractVector, params, ode_func!)
     pert_str = params.pert_str
     dynamic_params = NamedTuple{filter(!=(:pert_str), keys(params))}(params)
 
@@ -100,7 +100,7 @@ function perturbation(node1::Int, node2::Int, theta_init::AbstractVector, params
 end
 
 
-function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch, ode_func!)
+function calc_epistasis(theta_batch, node1_batch, node2_batch, params_batch, ode_func!)
     N = Int(params_batch.N)
     n_trials = length(node1_batch)
     
@@ -114,7 +114,7 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch, o
     rel_span_residual = zeros(Float64, n_trials)
     rel_total_dist = zeros(Float64, n_trials)
     rel_is_dependent = zeros(Float64, n_trials)
-    valid_flags = zeros(Bool, n_trials)
+    valid_flags = zeros(Int8, n_trials)
 
     @threads for t in 1:n_trials
         #since Julia begins indexing at 1 and slices inclusively on both sides
@@ -127,10 +127,15 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch, o
             N = N,
             idx_i = @view(params_batch.idx_i[start_idx:end_idx]),
             idx_j = @view(params_batch.idx_j[start_idx:end_idx]),
-            idx_k = @view(params_batch.idx_k[start_idx:end_idx]),
             vals  = @view(params_batch.vals[start_idx:end_idx]),
             pert_str = Float64(params_batch.pert_str)
         )
+
+        if haskey(params_batch, :idx_k)
+            params_t = merge(params_t, (
+                idx_k = @view(params_batch.idx_k[start_idx:end_idx]),
+            ))
+        end
 
         theta_init_t = Vector{Float64}(theta_batch[t, :])
         n1 = Int(node1_batch[t])
@@ -148,7 +153,7 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch, o
             rel_span_residual[t] = NaN
             rel_total_dist[t] = NaN
             rel_is_dependent[t] = NaN
-            valid_flags[t] = false
+            valid_flags[t] = 0
             continue
         end
 
@@ -163,7 +168,7 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch, o
         rel_span_residual[t] = relStateEpis.SpanResidual
         rel_total_dist[t] = relStateEpis.TotalDist
         rel_is_dependent[t] = relStateEpis.IsDependent
-        valid_flags[t] = true
+        valid_flags[t] = 1
     end
 
     return (
@@ -177,3 +182,6 @@ function calc_h_epistasis(theta_batch, node1_batch, node2_batch, params_batch, o
         relIsDependent = rel_is_dependent, 
         validFlags = valid_flags)
 end
+
+calc_h_epistasis(args...) = calc_epistasis(args..., h_kuramoto_func!)
+calc_l_epistasis(args...) = calc_epistasis(args..., l_kuramoto_func!)

@@ -2,15 +2,28 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+from collections import namedtuple
 
 import numpy as np
 import xgi
 import networkx as nx
 import matplotlib.pyplot as plt
+from scipy import stats
+
+from juliacall import Main as jl
+
+script_directory = os.path.dirname(os.path.abspath(__file__))
+parent_directory = os.path.dirname(script_directory)
+
+jl.seval(f'import Pkg; Pkg.activate(raw"{parent_directory}")')
+
+
+script_dir = Path(__file__).parent
+julia_file_path = script_dir.parent / "src" / "perturbations.jl"
+
+jl.include(str(julia_file_path))
 
 from src.sparsify import sparse_adjacency_matrix, sparse_adjacency_tensor
-from collections import namedtuple
-from juliacall import Main as jl
 
 def generate_tensors(n_trials, N, p_H, p_L, master_rng: np.random.Generator | None = None):
     if master_rng is None:
@@ -95,16 +108,6 @@ def generate_tensors(n_trials, N, p_H, p_L, master_rng: np.random.Generator | No
     }
 
 def main(n_trials, N, p_H, p_L, K, pert_str):
-    script_directory = os.path.dirname(os.path.abspath(__file__))
-    parent_directory = os.path.dirname(script_directory)
-
-    jl.seval(f'import Pkg; Pkg.activate(raw"{parent_directory}")')
-
-
-    script_dir = Path(__file__).parent
-    julia_file_path = script_dir.parent / "src" / "perturbations.jl"
-
-    jl.include(str(julia_file_path))
     
     batches = generate_tensors(n_trials,N,p_H,p_L)
 
@@ -136,12 +139,70 @@ def main(n_trials, N, p_H, p_L, K, pert_str):
     )
 
     HigherEpisData = jl.calc_h_epistasis(batches['theta_init'], batches['node1'], batches['node2'], H_params)
-    #LowerEpisData = jl.calc_l_epistasis(batches['theta_init'], batches['node1'], batches['node2'], H_params)
+    LowerEpisData = jl.calc_l_epistasis(batches['theta_init'], batches['node1'], batches['node2'], G_params)
 
-    plt.hist(HigherEpisData.nonrelTotalDist)
+    higher = np.asarray(HigherEpisData.nonrelTotalDist).ravel()
+    lower = np.asarray(LowerEpisData.nonrelTotalDist).ravel()
+
+    higher = higher[np.isfinite(higher)]
+    lower = lower[np.isfinite(lower)]
+
+    print(higher)
+    print(lower)
+
+    cutoff = min(len(higher), len(lower))
+    higher_cutoff = higher[:cutoff]
+    lower_cutoff  = lower[:cutoff]
+
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Computer Modern Roman", "DejaVu Serif"],
+        "mathtext.fontset": "cm",
+        "font.size": 9,
+        "axes.labelsize": 10,
+        "legend.fontsize": 8,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "figure.titlesize": 10
+    })
+
+    fig, axes = plt.subplots(1, 2, figsize=(6.75, 2.6))
+
+    # --- Hist ---
+    ax1 = axes[0]
+    bins = np.linspace(0, max(higher.max(), lower.max()), 35)
+
+    ax1.hist(higher_cutoff, bins=bins, alpha=0.4, color='#c0392b',
+            label=f'Higher ($p_H = {p_H}$)', histtype='stepfilled', linewidth=1.5)
+    ax1.hist(lower_cutoff,  bins=bins, alpha=0.4, color='#2980b9',
+            label=f'Lower ($p_L = {p_L}$)', histtype='stepfilled', linewidth=1.5)
+    ax1.set_xlabel(r'$d_{\mathrm{nonrel}}$')
+    ax1.set_ylabel('Count')
+    ax1.tick_params(direction='in', which='both', top=True, right=True)
+    ax1.legend(frameon=False, loc='upper right')
+
+    ax1.text(0.58, 0.70, f'$N={N}, K={K}$', transform=ax1.transAxes, fontsize=8)
+    ax1.text(-0.18, 1.02, '(a)', transform=ax1.transAxes, fontweight='bold')
+
+    # --- CDF ---
+    ax2 = axes[1]
+    for data, color, label in [(higher, '#c0392b', f'Higher ($p_H = {p_H}$)'),
+                            (lower, '#2980b9', f'Lower ($p_L = {p_L}$)')]:
+        sorted_data = np.sort(data)
+        cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
+        ax2.plot(sorted_data, cdf, color=color, linewidth=1.2, label=label)
+
+    ax2.set_ylim(1e-3, 1.1)
+    ax2.set_xlabel(r'$d_{\mathrm{nonrel}}$')
+    ax2.set_ylabel(r'$F(d_{\mathrm{nonrel}})$')
+    ax2.tick_params(direction='in', which='both', top=True, right=True)
+    ax2.legend(frameon=False, loc='lower right')
+    ax2.text(-0.18, 1.02, '(b)', transform=ax2.transAxes, fontweight='bold')
+    ax2.text(0.58, 0.275, f'$N={N}, K={K}$', transform=ax2.transAxes, fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig('kuramoto_epis.png', format='png', dpi=300, bbox_inches='tight')
     plt.show()
-
-
 
 if __name__ == "__main__":
     n_trials = 1000
@@ -152,7 +213,7 @@ if __name__ == "__main__":
     ep_L = p_H * (N - 2) * (1 / 3) 
     p_L = min(dp_L, 1.0)
 
-    K = 100.0
+    K = 100
     pert_str = np.pi / 2
 
     main(n_trials, N, p_H, p_L, K, pert_str)
