@@ -41,7 +41,7 @@ def run_trial(seed, N, ps, K):
     rng = np.random.default_rng(seed=seed)
     theta_init = rng.uniform(low=0.0, high=2*np.pi, size=N)
 
-    DynParamsH = namedtuple('ModelParamsH', ['omega', 'K', 'N', 'idx_i', 'idx_j', 'idx_k', 'vals'])
+    DynParamsH = namedtuple('DynParamsH', ['omega', 'K', 'N', 'idx_i', 'idx_j', 'idx_k', 'vals'])
     H_params = DynParamsH(
         omega=np.zeros(N),
         K=K,
@@ -115,18 +115,6 @@ def calculate_dyadic_effect(N, ps, K_max, n_trials_K, n_trials_norm, master_rng:
 
 def figure1(H,delta_theta,N,ps,K): 
 
-    plt.rcParams.update({
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Computer Modern Roman", "DejaVu Serif"],
-        "mathtext.fontset": "cm",
-        "font.size": 9,
-        "axes.labelsize": 10,
-        "legend.fontsize": 8,
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
-        "figure.titlesize": 10,
-    })
-
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
     pos = xgi.barycenter_spring_layout(H)
 
@@ -186,17 +174,6 @@ def figure1(H,delta_theta,N,ps,K):
     ax2.grid(axis='y', linestyle='--', alpha=0.5, zorder=0)
 
 def figure2(averaged_diff_norm_vec, K_vec):
-    plt.rcParams.update({
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Computer Modern Roman", "DejaVu Serif"],
-        "mathtext.fontset": "cm",
-        "font.size": 9,
-        "axes.labelsize": 10,
-        "legend.fontsize": 8,
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
-        "figure.titlesize": 10,
-    })
     
     fig, ax = plt.subplots(figsize=(5, 3.5), dpi=150)
     
@@ -237,6 +214,7 @@ def figure2(averaged_diff_norm_vec, K_vec):
     
     fig.tight_layout()
     return fig, ax
+
 
 
 def main():
