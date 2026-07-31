@@ -287,6 +287,8 @@ def plot_minimum_hi_epistasis_graphs(higher, seeds, N, p_H, K, pert_str):
 
     MinStateVectors = MinHigherEpisData.StateVectors
     MaxStateVectors = MaxHigherEpisData.StateVectors
+    MinRelStateVectors = MinHigherEpisData.RelativeStateVectors
+    MaxRelStateVectors = MaxHigherEpisData.RelativeStateVectors
 
     min_pert_nodes_set = {min_node1, min_node2}
     max_pert_nodes_set = {max_node1, max_node2}
@@ -296,9 +298,19 @@ def plot_minimum_hi_epistasis_graphs(higher, seeds, N, p_H, K, pert_str):
     max_connected_edge_ids = set().union(*(max_H.nodes.memberships(v) for v in max_pert_nodes_set))
     max_H_sub = xgi.subhypergraph(max_H, edges=max_connected_edge_ids)
 
-    fig, axes = plt.subplots(2, 2, figsize=(6.75, 5.2), gridspec_kw={'width_ratios': [1, 1.5]})
+    fig = plt.figure(figsize=(7.75, 5.75))
+    subfigs = fig.subfigures(2, 1, hspace=0.05)
 
-    ax1 = axes[0,0]
+    # ---- Row 1: Minimum ----
+    subfigs[0].suptitle('Minimum', fontsize=10, fontweight='bold', y=0.98)
+    axes_top = subfigs[0].subplots(1, 2, gridspec_kw={'width_ratios': [1, 1.5]})
+    ax1, ax2 = axes_top
+
+    # ---- Row 2: Maximum ----
+    subfigs[1].suptitle('Maximum', fontsize=10, fontweight='bold', y=0.98)
+    axes_bottom = subfigs[1].subplots(1, 2, gridspec_kw={'width_ratios': [1, 1.5]})
+    ax3, ax4 = axes_bottom
+
 
     min_pos = xgi.barycenter_spring_layout(min_H, k=1.5)
 
@@ -342,20 +354,20 @@ def plot_minimum_hi_epistasis_graphs(higher, seeds, N, p_H, K, pert_str):
     ax1.set_xticks([])
     ax1.set_yticks([])
 
-    ax2 = axes[0,1]
-
     min_init = np.array(MinStateVectors.I)
     min_s1 = np.array(MinStateVectors.S1)
     min_s2 = np.array(MinStateVectors.S2)
-    min_ex = min_s1 + min_s2
     min_d = np.array(MinStateVectors.D)
+    min_ex = np.array(MinRelStateVectors.S1) + np.array(MinRelStateVectors.S2)
+    min_diff_d = np.array(MinRelStateVectors.D)
 
     data = np.vstack([
         min_init % (2 * np.pi),
         min_s1 % (2 * np.pi),
         min_s2 % (2 * np.pi),
+        min_d % (2 * np.pi),
         min_ex % (2 * np.pi),
-        min_d % (2 * np.pi)
+        min_diff_d % (2 * np.pi)
         ])
     
     im = ax2.imshow(data, cmap="viridis", aspect="auto", interpolation="nearest", vmin=0, vmax=2*np.pi)
@@ -365,18 +377,16 @@ def plot_minimum_hi_epistasis_graphs(higher, seeds, N, p_H, K, pert_str):
     cbar2.set_label(r"Final $\theta$", fontsize=9)
     cbar2.minorticks_on()
     
-    row_labels = [r"$Initial$",r"$Single 1$", r"$Single 2$", r"$Expected$", r"$Double$"]
-    ax2.set_yticks(np.arange(5))
+    row_labels = [r"$Initial$",r"$Single 1$", r"$Single 2$", r"$Double$", r"$Expected$", r"$Double_\mathrm{diff}$"]
+    ax2.set_yticks(np.arange(6))
     ax2.set_yticklabels(row_labels, fontsize=8)
     
-    ax2.set_xticks(np.arange(0, 20, 2))  # Tick every 2 units for clean look
+    ax2.set_xticks(np.arange(0, 20, 2))
     ax2.set_xticks(np.arange(0, 20, 1), minor=True)
     ax2.set_xlabel("Node States", fontsize=9)
     
     ax2.text(-0.05, 1.02, '(b)', transform=ax2.transAxes, fontweight='bold')
     ax2.tick_params(which="both", direction="in", top=True, right=True, labelsize=8)
-
-    ax3 = axes[1,0]
 
     max_pos = xgi.barycenter_spring_layout(max_H, k=1.5)
 
@@ -420,20 +430,20 @@ def plot_minimum_hi_epistasis_graphs(higher, seeds, N, p_H, K, pert_str):
     ax3.set_xticks([])
     ax3.set_yticks([])
 
-    ax4 = axes[1,1]
-
     max_init = np.array(MaxStateVectors.I)
     max_s1 = np.array(MaxStateVectors.S1)
     max_s2 = np.array(MaxStateVectors.S2)
-    max_ex = max_s1 + max_s2
     max_d = np.array(MaxStateVectors.D)
+    max_ex = np.array(MaxRelStateVectors.S1) + np.array(MaxRelStateVectors.S2)
+    max_diff_d = np.array(MaxRelStateVectors.D)
 
     data = np.vstack([
         max_init % (2 * np.pi),
         max_s1 % (2 * np.pi),
         max_s2 % (2 * np.pi),
+        max_d % (2 * np.pi),
         max_ex % (2 * np.pi),
-        max_d % (2 * np.pi)
+        max_diff_d % (2 * np.pi)
         ])
     
     im = ax4.imshow(data, cmap="viridis", aspect="auto", interpolation="nearest", vmin=0, vmax=2*np.pi)
@@ -443,18 +453,17 @@ def plot_minimum_hi_epistasis_graphs(higher, seeds, N, p_H, K, pert_str):
     cbar.set_label(r"Final $\theta$", fontsize=9)
     cbar.minorticks_on()
     
-    row_labels = [r"$Initial$",r"$Single 1$", r"$Single 2$", r"$Expected$", r"$Double$"]
-    ax4.set_yticks(np.arange(5))
+    row_labels = [r"$Initial$",r"$Single 1$", r"$Single 2$", r"$Double$", r"$Expected$", r"$Double_\mathrm{diff}$"]
+    ax4.set_yticks(np.arange(6))
     ax4.set_yticklabels(row_labels, fontsize=8)
     
-    ax4.set_xticks(np.arange(0, 20, 2))  # Tick every 2 units for clean look
+    ax4.set_xticks(np.arange(0, 20, 2))
     ax4.set_xticks(np.arange(0, 20, 1), minor=True)
     ax4.set_xlabel("Node States", fontsize=9)
     
     ax4.text(-0.05, 1.02, '(d)', transform=ax4.transAxes, fontweight='bold')
     ax4.tick_params(which="both", direction="in", top=True, right=True, labelsize=8)
 
-    plt.tight_layout()
     output_dir = Path("outputs")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -495,7 +504,7 @@ def main():
     ep_L = p_H * (N - 2) * (1 / 3) 
     p_L = min(dp_L, 1.0)
 
-    K = 100
+    K = 25
     pert_str = np.pi / 2
 
     master_rng = np.random.default_rng()
@@ -503,12 +512,14 @@ def main():
 
     EpisArr = calculate_epistasis(n_trials=n_trials, N=N, p_H=p_H, p_L=p_L, K=K, pert_str=pert_str, seeds=seeds)
 
-    higherL2 = EpisArr.HL2
-    lowerL2 = EpisArr.LL2
+    higherEpi = EpisArr.HL2
+    lowerEpi = EpisArr.LL2
+    # higherEpi = EpisArr.HL1
+    # lowerEpi = EpisArr.LL1
 
-    plot_epistasis(higher=higherL2,lower=lowerL2, N=N, p_H=p_H, p_L=p_L, K=K, pert_str=pert_str)
+    plot_epistasis(higher=higherEpi,lower=lowerEpi, N=N, p_H=p_H, p_L=p_L, K=K, pert_str=pert_str)
 
-    plot_minimum_hi_epistasis_graphs(higher=higherL2,seeds=seeds, N=N, p_H=p_H, K=K, pert_str=pert_str)
+    plot_minimum_hi_epistasis_graphs(higher=higherEpi,seeds=seeds, N=N, p_H=p_H, K=K, pert_str=pert_str)
 
     plt.show()
 

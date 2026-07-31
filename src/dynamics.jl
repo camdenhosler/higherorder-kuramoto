@@ -20,8 +20,11 @@ function h_kuramoto_func!(dtheta::AbstractVector, theta::AbstractVector, params,
         j = idx_j[e]
         k = idx_k[e]
 
+        a = 2.0
+
         phase_diff = theta[k] + theta[j] - 2 * theta[i]
-        dtheta[i] +=  vals[e] * sin(phase_diff) + (2 * K / float(N)) * vals[e] * sin(phase_diff) * cos(theta[j] - theta[k])
+        #dtheta[i] += a * (8 * sin(theta[k] / 2) * sin(theta[j] / 2) * sin(theta[i]) * cos((theta[k] + theta[j]) / 2 - theta[i]) + sin(theta[k] + theta[j])) + sin(theta[j] - 2 * theta[i]) + sin(theta[k] - 2 * theta[i]) - sin(theta[j]) - sin(theta[k]) + sin(2 * theta[i]) + sin(2 * theta[j] - 2 * theta[i]) + sin(2 * theta[k] - 2 * theta[i])
+        dtheta[i] +=  vals[e] * sin(phase_diff) + (2 * K / float(N)) * vals[e] * sin(phase_diff) * cos(theta[j] - theta[k]) #Regularized Higher Order
     end
 
     return nothing
@@ -52,13 +55,13 @@ function integrate_to_candidate(theta_init::AbstractVector, params, ode_func!)
         params
     )
 
-    cb = TerminateSteadyState(1e-7, 1e-7)
+    cb = TerminateSteadyState(1e-8, 1e-8)
     sol = solve(
         prob,
         AutoTsit5(TRBDF2()),
         callback=cb,
-        reltol=1e-8,
-        abstol=1e-10
+        reltol=1e-10,
+        abstol=1e-12
     )
 
     return copy(sol.u[end])
@@ -67,24 +70,25 @@ end
 function refine_fixed_point!(candidate::AbstractVector, params, ode_func!)
     #rewrite for non zero omegas
     f_root!(du, u, p) = ode_func!(du, u, p, 0.0)
-    prob = NonlinearProblem(f_root!, candidate, params)
+    #prob = NonlinearProblem(f_root!, candidate, params)
 
-    sol = solve(
-        prob, 
-        TrustRegion(max_trust_radius=0.05), 
-        reltol=1e-10,
-        abstol=1e-12,
-        maxiters=200
-    )
+    #     sol = solve(
+    #     prob, 
+    #     TrustRegion(max_trust_radius=0.005), 
+    #     reltol=1e-10,
+    #     abstol=1e-12,
+    #     maxiters=200
+    # )
     
-    candidate .= sol.u
+    #candidate .= sol.u
 
     dtheta_dt = similar(candidate)
     f_root!(dtheta_dt, candidate, params)
 
     linf_err = norm(dtheta_dt, Inf)
 
-    is_fixed = linf_err < 1e-12
+    is_fixed = linf_err < 1e-7
+    #is_fixed = linf_err < 1e-12
 
     return (Candidate = candidate, IsFixed = is_fixed)
 end

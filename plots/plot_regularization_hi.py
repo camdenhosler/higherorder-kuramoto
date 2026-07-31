@@ -173,7 +173,7 @@ def figure1(H,delta_theta,N,ps,K):
     ax2.set_title(f"Distribution of Relative Phase")
     ax2.grid(axis='y', linestyle='--', alpha=0.5, zorder=0)
 
-def figure2(averaged_diff_norm_vec, K_vec):
+def plot_dyadic_domination(averaged_diff_norm_vec, K_vec):
     
     fig, ax = plt.subplots(figsize=(5, 3.5), dpi=150)
     
@@ -213,8 +213,10 @@ def figure2(averaged_diff_norm_vec, K_vec):
     ax.margins(x=0.03, y=0.05)
     
     fig.tight_layout()
-    return fig, ax
+    output_dir = Path("outputs")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
+    plt.savefig(output_dir / "dyadic_domination.png", format="png", dpi=300, bbox_inches="tight")
 
 
 def main():
@@ -236,7 +238,7 @@ def main():
 
     averaged_diff_norm_vec, K_vec = calculate_dyadic_effect(N=N, ps=ps, K_max=K_max, n_trials_K=n_trials_K, n_trials_norm=n_trials_norm)
 
-    figure2(averaged_diff_norm_vec=averaged_diff_norm_vec, K_vec=K_vec)
+    plot_dyadic_domination(averaged_diff_norm_vec=averaged_diff_norm_vec, K_vec=K_vec)
 
     plt.tight_layout()
     plt.show()
